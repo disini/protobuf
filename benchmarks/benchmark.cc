@@ -11,26 +11,42 @@
 #include <stdint.h>
 #include <string.h>
 
+#include <cstdio>
+#include <cstdlib>
 #include <string>
 #include <vector>
 
+#include "google/protobuf/testing/file.h"
+#include "google/protobuf/testing/file.h"
 #include "google/ads/googleads/v16/services/google_ads_service.upbdefs.h"
 #include "google/protobuf/descriptor.pb.h"
+#include "google/protobuf/descriptor.upb.h"
+#include <gtest/gtest.h>
 #include "absl/container/flat_hash_set.h"
 #include "absl/log/absl_check.h"
+#include "absl/strings/string_view.h"
+#include "google/protobuf/arena.h"
 #include "google/protobuf/dynamic_message.h"
 #include "google/protobuf/json/json.h"
 #include "benchmarks/descriptor.pb.h"
 #include "benchmarks/descriptor.upb.h"
+#include "benchmarks/descriptor.upb_minitable.h"
 #include "benchmarks/descriptor.upbdefs.h"
 #include "benchmarks/descriptor_sv.pb.h"
+#include "upb/base/status.h"
 #include "upb/base/string_view.h"
 #include "upb/base/upcast.h"
 #include "upb/json/decode.h"
 #include "upb/json/encode.h"
 #include "upb/mem/arena.h"
+#include "upb/mem/arena.hpp"
+#include "upb/reflection/def.h"
 #include "upb/reflection/def.hpp"
+#include "upb/reflection/internal/def_pool.h"
+#include "upb/wire/batched_decode.h"
+#include "upb/wire/batched_encode.h"
 #include "upb/wire/decode.h"
+#include "upb/wire/encode.h"
 
 upb_StringView descriptor =
     benchmarks_descriptor_proto_upbdefinit.descriptor;
@@ -469,3 +485,27 @@ static void BM_JsonSerialize_Proto2(benchmark::State& state) {
   state.SetBytesProcessed(state.iterations() * json.size());
 }
 BENCHMARK(BM_JsonSerialize_Proto2);
+
+TEST(BenchmarkTest, TestBatched) {
+  upb::Arena arena;
+  upb_benchmark_FileDescriptorProto* msg = UpbParseDescriptor(arena.ptr());
+  char* buf;
+  size_t size;
+  upb_EncodeStatus status = upb_BatchedEncode(
+      UPB_UPCAST(msg), &upb_0benchmark__FileDescriptorProto_msg_init, 0,
+      arena.ptr(), &buf, &size);
+  EXPECT_EQ(status, kUpb_EncodeStatus_Ok);
+  EXPECT_GT(size, 0);
+  auto ok = File::SetContents("/tmp/batched.bin", absl::string_view(buf, size),
+                              true);
+  auto ok2 = File::SetContents(
+      "/tmp/wire.bin", absl::string_view(descriptor.data, descriptor.size),
+      true);
+
+  upb_Message* msg2 = upb_Message_New(
+      &upb_0benchmark__FileDescriptorProto_msg_init, arena.ptr());
+  upb_DecodeStatus dec_status = upb_BatchedDecode(
+      buf, size, msg2, &upb_0benchmark__FileDescriptorProto_msg_init, NULL, 0,
+      arena.ptr());
+  EXPECT_EQ(dec_status, kUpb_DecodeStatus_Ok);
+}
